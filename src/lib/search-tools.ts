@@ -483,6 +483,31 @@ Free, no API key needed.`,
 // 9. GITHUB TRENDING
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// Classify a GitHub release as major/minor/patch/security based on semver + changelog keywords.
+// This is deterministic (no AI) — the result flows into Stage 2 scoring.
+function classifyRelease(tagName: string, body: string): "security" | "major" | "minor" | "patch" {
+    const lower = (body || "").toLowerCase();
+
+    // Security takes priority over everything else
+    if (/\bcve[-\s]?\d|\bvulnerabilit|\bsecurity\s+(fix|patch|advisory|update|release)\b/.test(lower)) {
+        return "security";
+    }
+
+    // Strip leading 'v' and parse semver: MAJOR.MINOR.PATCH
+    const clean = tagName.replace(/^[vV]/, "");
+    const match = clean.match(/^(\d+)\.(\d+)\.?(\d*)/);
+    if (!match) return "major"; // Unknown format (e.g. 'stable', 'latest') — treat as noteworthy
+
+    const [, , min, patch] = match;
+
+    // x.0 or x.0.0 → major release
+    if (min === "0" && (!patch || patch === "0")) return "major";
+    // x.y.0 → minor release (new features)
+    if (!patch || patch === "0") return "minor";
+    // x.y.z → patch release (bugfixes, small changes)
+    return "patch";
+}
+
 export const githubTrending = tool(
     async ({ language }) => {
         try {
@@ -519,12 +544,15 @@ export const githubTrending = tool(
                     if (!rel.published_at) continue;
                     if (new Date(rel.published_at).getTime() < oneDayAgo) continue;
 
+                    const releaseType = classifyRelease(rel.tag_name || "", rel.body || "");
+
                     releaseItems.push({
                         repo: r.full_name,
-                        url: rel.html_url,                        // link to the release, not the repo
+                        url: rel.html_url,
                         version: rel.tag_name,
                         releaseName: rel.name,
-                        releaseSummary: (rel.body || "").substring(0, 600), // first 600 chars of changelog
+                        releaseSummary: (rel.body || "").substring(0, 600),
+                        releaseType,         // "security" | "major" | "minor" | "patch"
                         stars: r.stargazers_count,
                         language: r.language,
                         publishedAt: rel.published_at,

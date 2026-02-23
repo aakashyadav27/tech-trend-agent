@@ -414,9 +414,17 @@ export async function POST(req: NextRequest) {
         const extractorModel = new AzureChatOpenAI({ ...modelConfig, maxTokens: 32768 });
 
         // Build a rich scoring context for Stage 2 — role label + daily work context
+        const githubScoringRules = `
+GITHUB RELEASE SCORING (apply when item has a releaseType field):
+- releaseType "security" (CVE / vulnerability fix) → importance_score 9-10, is_major_announcement: true
+- releaseType "major"    (x.0.0 or x.0 version)   → importance_score 7-9,  is_major_announcement: true
+- releaseType "minor"    (x.y.0 new features)      → importance_score 4-6,  is_major_announcement: false
+- releaseType "patch"    (x.y.z small bugfix)       → importance_score 1-3,  is_major_announcement: false
+For the summary field, use the releaseName + releaseSummary text from the raw data — do NOT invent changelog content.`;
+
         const scoringContext = projectContext
-            ? `Job role: "${jobRole}"\nUser's daily work context: "${projectContext}"\n\nSCORING INSTRUCTION: Assign importance_score relative to how directly this news impacts the user's specific daily work described above. A library/tool the user actively uses scores 8-10. A tangentially related topic scores 4-6. Unrelated tech scores 1-3.`
-            : `Job role: "${jobRole}"\n\nSCORING INSTRUCTION: Assign importance_score based on how directly this news impacts a typical ${jobRole}'s daily workflow.`;
+            ? `Job role: "${jobRole}"\nUser's daily work context: "${projectContext}"\n\nSCORING INSTRUCTION: Assign importance_score relative to how directly this news impacts the user's specific daily work described above. A library/tool the user actively uses scores 8-10. A tangentially related topic scores 4-6. Unrelated tech scores 1-3.\n${githubScoringRules}`
+            : `Job role: "${jobRole}"\n\nSCORING INSTRUCTION: Assign importance_score based on how directly this news impacts a typical ${jobRole}'s daily workflow.\n${githubScoringRules}`;
 
         const stage2Result = await extractorModel.invoke([
             new SystemMessage(EXTRACTOR_PROMPT),
