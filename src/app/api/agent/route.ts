@@ -290,8 +290,34 @@ function extractRawToolOutputs(messages: BaseMessage[]): string {
             }
         }
     }
-    console.log(`\n📦 Extracted ${chunks.length} raw tool outputs (${chunks.join("").length} chars) for Stage 2`);
-    return chunks.join("\n\n---\n\n");
+    const full = chunks.join("\n\n---\n\n");
+    console.log(`\n📦 Extracted ${chunks.length} raw tool outputs (${full.length} chars) for Stage 2`);
+    return full;
+}
+
+// ─── Cap input to Stage 2 so output never gets truncated ──────────────────
+// Rule of thumb: 1 token ≈ 4 chars. With 32,768 output tokens available (gpt-4.1-mini),
+// and GPT-4.1-Mini's 128k input window, we cap raw data at 80k chars.
+// That leaves ample input headroom while allowing ~130k chars of JSON output.
+const MAX_STAGE2_INPUT_CHARS = 80_000;
+
+// ─── Repair a JSON array that was cut off mid-write ───────────────────────
+// Finds the last complete object '}' and closes the array.
+function repairTruncatedJson(text: string): any[] {
+    let attempt = text.trim();
+
+    // Already valid — great
+    if (attempt.endsWith("]")) return JSON.parse(attempt);
+
+    // Remove trailing comma if present before we close
+    attempt = attempt.replace(/,\s*$/, "");
+
+    // Find the last complete JSON object boundary
+    const lastBrace = attempt.lastIndexOf("}");
+    if (lastBrace === -1) throw new Error("No complete JSON object found");
+
+    const trimmed = attempt.substring(0, lastBrace + 1) + "]";
+    return JSON.parse(trimmed);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -367,9 +393,11 @@ export async function POST(req: NextRequest) {
         // ─── Extract raw tool outputs ──────────────────────────────────────────
         const rawToolData = extractRawToolOutputs(stage1Result.messages);
 
-        if (!rawToolData || rawToolData.length < 50) {
-            console.warn("⚠️  Stage 1 returned no usable tool data. Returning empty result.");
-            return NextResponse.json({ newsItems: [], jobRole });
+        // ─── Cap raw tool data to prevent Stage 2 output truncation ──────────
+        let stage2Input = rawToolData;
+        if (rawToolData.length > MAX_STAGE2_INPUT_CHARS) {
+            stage2Input = rawToolData.substring(0, MAX_STAGE2_INPUT_CHARS);
+            console.warn(`⚠️  Raw data (${rawToolData.length} chars) truncated to ${MAX_STAGE2_INPUT_CHARS} chars for Stage 2 token headroom.`);
         }
 
         // ═══════════════════════════════════════════════════════════════════════
@@ -382,12 +410,18 @@ export async function POST(req: NextRequest) {
         console.log(`🧪 STAGE 2: EXTRACTOR — structuring ${rawToolData.length} chars of raw data...`);
         console.log(`${"─".repeat(80)}\n`);
 
-        const extractorModel = new AzureChatOpenAI({ ...modelConfig, maxTokens: 16383 });
+        // Stage 2 model: gpt-4.1-mini with full 32,768 output token budget, no tools
+        const extractorModel = new AzureChatOpenAI({ ...modelConfig, maxTokens: 32768 });
+
+        // Build a rich scoring context for Stage 2 — role label + daily work context
+        const scoringContext = projectContext
+            ? `Job role: "${jobRole}"\nUser's daily work context: "${projectContext}"\n\nSCORING INSTRUCTION: Assign importance_score relative to how directly this news impacts the user's specific daily work described above. A library/tool the user actively uses scores 8-10. A tangentially related topic scores 4-6. Unrelated tech scores 1-3.`
+            : `Job role: "${jobRole}"\n\nSCORING INSTRUCTION: Assign importance_score based on how directly this news impacts a typical ${jobRole}'s daily workflow.`;
 
         const stage2Result = await extractorModel.invoke([
             new SystemMessage(EXTRACTOR_PROMPT),
             new HumanMessage(
-                `Job role: "${jobRole}"\nToday: ${new Date().toISOString().split("T")[0]}\n\nRAW TOOL OUTPUTS FROM STAGE 1:\n\n${rawToolData}\n\nExtract all technically relevant news items from the raw data above and return them as a JSON array. ONLY use information present in the raw text.`
+                `${scoringContext}\nToday: ${new Date().toISOString().split("T")[0]}\n\nRAW TOOL OUTPUTS FROM STAGE 1:\n\n${stage2Input}\n\nExtract all technically relevant news items from the raw data above and return them as a JSON array. ONLY use information present in the raw text.`
             ),
         ]);
 
@@ -399,16 +433,33 @@ export async function POST(req: NextRequest) {
         console.log(`✅ Stage 2 done. Output length: ${stage2Content.length} chars`);
 
         // ─── Parse Stage 2 output ─────────────────────────────────────────────
+        // 3-attempt recovery chain:
+        //   1. Direct JSON.parse (happy path)
+        //   2. repairTruncatedJson — surgically closes a cut-off array
+        //   3. Regex extraction — finds any [...] block as last resort
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let parsed: any[] = [];
+        const cleaned = stage2Content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
         try {
-            const cleaned = stage2Content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
             parsed = JSON.parse(cleaned);
-        } catch (err) {
-            console.error("❌ JSON parse failed. Attempting regex extraction...", err);
-            const match = stage2Content.match(/\[[\s\S]*\]/);
-            if (match) {
-                try { parsed = JSON.parse(match[0]); } catch { parsed = []; }
+            console.log(`✅ JSON parsed cleanly.`);
+        } catch {
+            console.warn("⚠️  Direct parse failed. Attempting truncation repair...");
+            try {
+                parsed = repairTruncatedJson(cleaned);
+                console.log(`✅ Truncation repair succeeded: ${parsed.length} items recovered.`);
+            } catch {
+                console.warn("⚠️  Repair failed. Attempting regex extraction...");
+                const match = cleaned.match(/\[[\s\S]*/);
+                if (match) {
+                    try {
+                        parsed = repairTruncatedJson(match[0]);
+                        console.log(`✅ Regex + repair succeeded: ${parsed.length} items recovered.`);
+                    } catch {
+                        console.error("❌ All parse strategies failed. Returning 0 items.");
+                        parsed = [];
+                    }
+                }
             }
         }
 
