@@ -486,20 +486,54 @@ Free, no API key needed.`,
 export const githubTrending = tool(
     async ({ language }) => {
         try {
-            console.log(`    🐙 GitHub Trending: lang=${language || "all"}`);
-            const searchUrl = `https://api.github.com/search/repositories?q=${language || "stars:>100"}+pushed:>${new Date(Date.now() - 86400000).toISOString().split("T")[0]}&sort=stars&order=desc&per_page=10`;
+            console.log(`    🐙 GitHub Releases: lang=${language || "all"}`);
+
+            const since = new Date(Date.now() - 86400000).toISOString().split("T")[0];
+
+            // Query for repos that published a RELEASE in the last 24h, sorted by stars
+            // This targets actual versioned releases, not just any commit push
+            const langFilter = language ? `+language:${language}` : "";
+            const searchUrl = `https://api.github.com/search/repositories?q=stars:>500${langFilter}+pushed:>${since}&sort=stars&order=desc&per_page=20`;
+
             const res = await fetch(searchUrl, {
                 headers: { "User-Agent": "TechTrendAgent/1.0", Accept: "application/vnd.github.v3+json" },
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const items = (data.items || []).slice(0, 10).map((r: any) => ({
-                name: r.full_name, url: r.html_url, description: r.description,
-                stars: r.stargazers_count, language: r.language, pushedAt: r.pushed_at,
-            }));
-            console.log(`    🐙 GitHub Trending: ${items.length} repos`);
-            return JSON.stringify(items, null, 2);
+
+            // For each candidate repo, check if it has an actual release within 24h
+            const oneDayAgo = Date.now() - 86400000;
+            const releaseItems: object[] = [];
+
+            for (const r of (data.items || []).slice(0, 20)) {
+                if (releaseItems.length >= 10) break;
+                try {
+                    const relRes = await fetch(
+                        `https://api.github.com/repos/${r.full_name}/releases/latest`,
+                        { headers: { "User-Agent": "TechTrendAgent/1.0", Accept: "application/vnd.github.v3+json" } }
+                    );
+                    if (!relRes.ok) continue;
+                    const rel = await relRes.json();
+
+                    // Only include if the latest release was published in the last 24h
+                    if (!rel.published_at) continue;
+                    if (new Date(rel.published_at).getTime() < oneDayAgo) continue;
+
+                    releaseItems.push({
+                        repo: r.full_name,
+                        url: rel.html_url,                        // link to the release, not the repo
+                        version: rel.tag_name,
+                        releaseName: rel.name,
+                        releaseSummary: (rel.body || "").substring(0, 600), // first 600 chars of changelog
+                        stars: r.stargazers_count,
+                        language: r.language,
+                        publishedAt: rel.published_at,
+                    });
+                } catch { /* skip repos that error */ }
+            }
+
+            console.log(`    🐙 GitHub Releases: ${releaseItems.length} actual releases found`);
+            return JSON.stringify(releaseItems, null, 2);
         } catch (error) {
             console.error(`    ❌ GitHub error:`, error);
             return JSON.stringify({ error: String(error) });
@@ -507,7 +541,7 @@ export const githubTrending = tool(
     },
     {
         name: "github_trending",
-        description: "Find trending GitHub repos. Filter by language. Free.",
+        description: "Find GitHub repos that published an ACTUAL RELEASE in the last 24 hours (not just any commit). Returns version tag, release name, and changelog excerpt. Only surfaces real versioned releases (e.g. v2.1.0), not repos that merely had a commit pushed. Filter by language. Free.",
         schema: z.object({
             language: z.string().optional().describe("Language filter (e.g. 'typescript', 'python')"),
         }),
