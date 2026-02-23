@@ -46,9 +46,9 @@ function parseFeedContent(xml: string, maxResults: number, sourceName: string) {
     // Strict 24h freshness filter
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
     const fresh = items.filter((item) => {
-        if (!item.pubDate) return true; // no date = keep
+        if (!item.pubDate) return true; // No date? Keep for now, Reranker will handle it
         const d = new Date(item.pubDate);
-        if (isNaN(d.getTime())) return true; // unparseable = keep
+        if (isNaN(d.getTime())) return true;
         return d.getTime() > cutoff;
     });
     return fresh.slice(0, maxResults);
@@ -88,7 +88,7 @@ export const duckDuckGoSearch = tool(
         description: "Search the web using DuckDuckGo. Returns titles, URLs, snippets. Free.",
         schema: z.object({
             query: z.string().describe("Search query"),
-            maxResults: z.number().default(10).describe("Max results"),
+            maxResults: z.number().default(50).describe("Max results"),
         }),
     }
 );
@@ -119,7 +119,7 @@ export const duckDuckGoNews = tool(
         description: "Search recent news via DuckDuckGo News. Returns titles, URLs, dates. Free.",
         schema: z.object({
             query: z.string().describe("News search query"),
-            maxResults: z.number().default(10).describe("Max results"),
+            maxResults: z.number().default(50).describe("Max results"),
         }),
     }
 );
@@ -149,7 +149,7 @@ export const googleNewsRSS = tool(
         description: "Fetch Google News RSS headlines from past 24h. Free.",
         schema: z.object({
             query: z.string().describe("News query"),
-            maxResults: z.number().default(10).describe("Max results"),
+            maxResults: z.number().default(50).describe("Max results"),
         }),
     }
 );
@@ -187,7 +187,7 @@ export const hackerNewsSearch = tool(
         description: "Search Hacker News for recent stories via Algolia. Free.",
         schema: z.object({
             query: z.string().describe("Search query"),
-            maxResults: z.number().default(10).describe("Max results"),
+            maxResults: z.number().default(50).describe("Max results"),
         }),
     }
 );
@@ -234,7 +234,7 @@ export const redditSearch = tool(
         schema: z.object({
             query: z.string().describe("Search query"),
             subreddit: z.string().default("programming").describe("Subreddit name"),
-            maxResults: z.number().default(10).describe("Max results"),
+            maxResults: z.number().default(50).describe("Max results"),
         }),
     }
 );
@@ -259,10 +259,10 @@ export const devToSearch = tool(
                 const res = await fetch(url, { headers: { "User-Agent": "TechTrendAgent/1.0" } });
                 if (res.ok) { data = await res.json(); if (data?.length > 0) break; }
             }
-            const twoDaysAgo = Date.now() - 48 * 60 * 60 * 1000;
+            const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const items = (data || [])
-                .filter((a: any) => new Date(a.published_at).getTime() > twoDaysAgo)
+                .filter((a: any) => new Date(a.published_at).getTime() > oneDayAgo)
                 .slice(0, maxResults)
                 .map((a: any) => ({
                     title: a.title, url: a.url, tags: a.tag_list,
@@ -281,7 +281,7 @@ export const devToSearch = tool(
         description: "Search Dev.to for developer articles by tag. Free.",
         schema: z.object({
             query: z.string().describe("Tag (e.g. 'react', 'typescript')"),
-            maxResults: z.number().default(10).describe("Max results"),
+            maxResults: z.number().default(50).describe("Max results"),
         }),
     }
 );
@@ -324,7 +324,7 @@ export const lobstersSearch = tool(
         description: "Browse Lobste.rs curated tech stories. Tags: javascript, rust, python, security, devops, ai, web. Free.",
         schema: z.object({
             query: z.string().describe("Tag (e.g. 'javascript', 'ai')"),
-            maxResults: z.number().default(10).describe("Max results"),
+            maxResults: z.number().default(50).describe("Max results"),
         }),
     }
 );
@@ -474,7 +474,7 @@ You can also pass a direct feed URL if you know it.
 Free, no API key needed.`,
         schema: z.object({
             url: z.string().describe("Website URL to discover feed from (e.g. 'https://react.dev', 'https://blog.rust-lang.org', 'https://kubernetes.io/blog')"),
-            maxResults: z.number().default(10).describe("Max articles to return"),
+            maxResults: z.number().default(50).describe("Max articles to return"),
         }),
     }
 );
@@ -551,17 +551,24 @@ export const scrapeWebsite = tool(
             const sourceName = new URL(url).hostname.replace(/^www\./, "").replace(/\.com$|\.org$|\.io$|\.dev$/, "");
 
             // Determine the true publication date purely from metadata
-            let trueDate = new Date().toISOString();
+            let trueDate: string | null = null;
 
             if (scrapeResult.metadata?.datePublished) {
                 trueDate = String(scrapeResult.metadata.datePublished);
             } else if (scrapeResult.metadata?.dateModified) {
                 trueDate = String(scrapeResult.metadata.dateModified);
+            } else if (scrapeResult.metadata?.ogDate) {
+                trueDate = String(scrapeResult.metadata.ogDate);
             }
+
+            // CRITICAL: If no date found, we mark as 'today' but with high skepticism
+            const finalDate = trueDate || new Date().toISOString();
 
             // Enforce 24 hour filter immediately
             const oneDayAgoMs = Date.now() - 24 * 60 * 60 * 1000;
-            if (new Date(trueDate).getTime() < oneDayAgoMs) {
+
+            // If we HAVE a date and it's old, REJECT HARD
+            if (trueDate && new Date(trueDate).getTime() < oneDayAgoMs) {
                 console.log(`    🔥 Scrape Website: Rejected - Article is older than 24h (${trueDate})`);
                 return JSON.stringify([]);
             }
@@ -572,7 +579,7 @@ export const scrapeWebsite = tool(
                 url: url,
                 summary: scrapeResult.markdown ? scrapeResult.markdown.substring(0, 1000) : "No content extracted",
                 source: sourceName,
-                publishedAt: trueDate
+                publishedAt: finalDate
             }];
 
             console.log(`    🔥 Scrape Website: Extracted ${scrapeResult.markdown?.length || 0} characters`);

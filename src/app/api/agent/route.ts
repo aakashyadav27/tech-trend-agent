@@ -8,49 +8,84 @@ import { allSearchTools } from "@/lib/search-tools";
 export const maxDuration = 120;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SYSTEM PROMPT — tuned for technical depth, zero noise
+// STAGE 1 PROMPT — RESEARCHER
+// Only goal: fetch raw data from tools. Do NOT summarise or produce JSON.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const SYSTEM_PROMPT = `You are an expert tech industry analyst who finds deeply TECHNICAL and ACTIONABLE news for a specific job role.
+const RESEARCHER_PROMPT = `You are a raw data collector for a tech news pipeline.
 
-You have 10 FREE search tools:
+═══════════════════════════════════════════════
+🔒 STRICT RULES — NEVER VIOLATE
+═══════════════════════════════════════════════
+- Your ONLY job is to call tools and collect raw data. Do NOT write summaries.
+- Do NOT format or structure any output.
+- Do NOT add any commentary, analysis, or JSON.
+- When you have finished calling all tools, output exactly one word: DONE
+═══════════════════════════════════════════════
 
-SEARCH: duckduckgo_search (web), duckduckgo_news (news), google_news_rss (headlines past 24h)
-COMMUNITY: hackernews_search (HN), reddit_search (subreddits), devto_articles (dev.to), lobsters_search (lobste.rs)
-RSS: read_rss_feed — Give it ANY website URL and it auto-discovers and reads the RSS/Atom feed. Works with blogs, docs sites, news sites, framework pages — anything.
-CODE: github_trending (trending repos)
-VIDEO: youtube_search (recent developments, feature announcements, releases)
+You have these search tools:
+SEARCH: duckduckgo_search, duckduckgo_news, google_news_rss
+COMMUNITY: hackernews_search, reddit_search, devto_articles, lobsters_search
+RSS: read_rss_feed — give it any website URL to discover and read its RSS/Atom feed
+CODE: github_trending
+VIDEO: youtube_search, youtube_channel_videos
 
-PROCESS:
-1. Identify the core technologies, frameworks, languages, and tools for this job role.
-2. Make 15-25 PARALLEL tool calls. Be aggressive:
-   - 6-10 read_rss_feed calls or scrape_website calls with the OFFICIAL websites of frameworks/libraries this role uses.
-     THINK about what sites a person in this role would bookmark and read daily — fetch those.
-   - 4-5 google_news_rss or duckduckgo_news queries with TECHNICAL terms (framework names, CVEs, release keywords)
-   - 2-4 hackernews_search, reddit_search, or devto_articles for community discussions
-   - 1 github_trending filtered by the role's primary language
-   - 1-2 youtube_search or youtube_channel_videos calls for high-value visual news.
-   - 1-2 duckduckgo_search for niche topics
-3. Include EVERY technically relevant item from the PAST 24 HOURS ONLY. Strictly no older content.
-   ✅ INCLUDE: Framework releases, library updates, CVEs, security patches, tutorials, architecture patterns, perf improvements, tooling updates, language/runtime updates, protocol changes, API changes, benchmark results, migration guides, best practice posts, new dev tools, research papers with code.
-   ✅ GITHUB RULE: For GitHub/repositories, ONLY include MAJOR library/framework releases (e.g., v1.0, v2.0) or massive architectural updates.
-   ❌ EXCLUDE: CEO drama, politics, funding rounds, acquisitions, layoffs, stock moves, regulatory speculation, vague AI hype, anything older than 24 hours.
-   ❌ GITHUB EXCLUDE: Minor GitHub commits, obscure repositories without wide adoption, routine bugfix patches that aren't critical security issues.
+COLLECTION STRATEGY — be extremely aggressive:
+1. Make as many PARALLEL tool calls as the task requires.
+   - 10-15 read_rss_feed calls on OFFICIAL framework/library websites for this role.
+   - 5-8 google_news_rss or duckduckgo_news queries using TECHNICAL terms.
+   - 4-6 hackernews_search, reddit_search, or devto_articles for community discussions.
+   - 1-2 github_trending filtered by primary language.
+   - 2-4 youtube_search for high-value announcements.
+2. Collect EVERYTHING from the past 24 hours. Do not filter — the next stage handles filtering.
+3. When all tools are done, output exactly: DONE`;
 
-4. Return a JSON array with ALL qualifying items. You MUST return at least 15-25 items if sufficient news exists. Increase your internal tool 'maxResults' usage if needed. Each item MUST exactly match this database schema format (plus source):
-   - "title": Headline
-   - "url": Direct link
-   - "summary": 2-3 sentences on TECHNICAL IMPACT
-   - "importance_score": 1-10 (10 = critical)
-   - "target_audience": Array of strings (e.g. ["Frontend", "React"])
-   - "published_at": ISO Date if known, else "today"
-   - "is_major_announcement": Boolean
-   - "technologies": Array of strings (e.g. ["Next.js", "TypeScript"])
-   - "primary_role": Single job role this most applies to
-   - "relevant_roles": Array of strings (Other impacted roles)
-   - "source": Name of the publication or blog
+// ═══════════════════════════════════════════════════════════════════════════════
+// STAGE 2 PROMPT — EXTRACTOR
+// Only goal: parse raw tool outputs into structured JSON. Zero hallucination.
+// ═══════════════════════════════════════════════════════════════════════════════
 
-CRITICAL: Output ONLY a valid JSON array. No markdown, no fences, no commentary.`;
+const EXTRACTOR_PROMPT = `You are a structured data extractor for a tech news pipeline.
+
+═══════════════════════════════════════════════
+🔒 GROUNDING RULES — NEVER VIOLATE
+═══════════════════════════════════════════════
+1. You have NO tools. You CANNOT search the web or call any APIs.
+2. TOOL OUTPUTS ARE YOUR ONLY SOURCE OF TRUTH.
+   Every field you write MUST come from the raw text provided to you below.
+   Do NOT use your internal training knowledge to fill in any field.
+3. NEVER INVENT DATES. Use only dates present in the raw text. If absent, use "today".
+4. NEVER WRITE A SUMMARY YOU CANNOT CITE.
+   If only a title was returned with no body text, write: "No further detail available from source."
+5. NEVER ADD ITEMS FROM MEMORY. Only items explicitly present in the raw tool output below.
+6. SKIP any item that is older than 24 hours based on its date in the raw text.
+7. SKIP business news: CEO drama, funding, IPOs, acquisitions, layoffs, stock prices.
+═══════════════════════════════════════════════
+
+From the raw tool outputs below, extract all technically relevant news items and return them as a JSON array.
+Target 80-150 items if sufficient news exists. Prioritise items with clear dates within the last 24 hours.
+
+DENSITY RULES (to fit more items):
+- "summary": STRICTLY 1 concise sentence from the raw text only.
+- "target_audience": Max 2 items.
+- "technologies": Max 3 items.
+- "relevant_roles": Keep short or empty.
+
+Schema for EACH item:
+- "title": Exact headline from the raw text
+- "url": Exact URL from the raw text
+- "summary": 1 sentence derived ONLY from the raw text content
+- "importance_score": 1-10 (10 = critical security patch or major release)
+- "target_audience": Array (max 2 strings)
+- "published_at": Exact date string from raw text, or "today" if none
+- "is_major_announcement": Boolean
+- "technologies": Array of technology names (max 3)
+- "primary_role": The job role this most applies to
+- "relevant_roles": Array of other impacted roles
+- "source": Publication or site name from the raw text
+
+CRITICAL: Output ONLY a valid JSON array. No markdown, no fences, no commentary.
+CRITICAL: Every item MUST be backed by the raw text. Do not add anything from memory.`;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // RERANKER — post-process items by actionable technical impact
@@ -83,22 +118,21 @@ const NOISE_PATTERNS = [
     /\bbillionaire/i, /\brich\s*list/i, /\bnet\s*worth/i,
 ];
 
-
 function isWithin24Hours(dateStr: string): boolean {
+    if (!dateStr || dateStr === "today") return true;
     try {
         const pubDate = new Date(dateStr);
-        if (isNaN(pubDate.getTime())) return true; // can't parse → keep it (agent said it's fresh)
+        if (isNaN(pubDate.getTime())) return true;
         const hoursAgo = (Date.now() - pubDate.getTime()) / (1000 * 60 * 60);
-        return hoursAgo >= -1 && hoursAgo <= 24; // allow 1h future for timezone drift
+        return hoursAgo >= -0.5 && hoursAgo <= 24;
     } catch {
-        return true; // unparseable → keep
+        return true;
     }
 }
 
 function rerank(items: NewsItem[]): NewsItem[] {
     console.log(`\n🔄 RERANKER: Processing ${items.length} items...`);
 
-    // ── IDENTIFY Stale items without removing them ──
     let staleCount = 0;
 
     const scored = items.map((item) => {
@@ -114,36 +148,27 @@ function rerank(items: NewsItem[]): NewsItem[] {
         const text = `${item.title} ${item.summary} ${item.category || ""}`;
         let score = item.relevance || 5;
 
-        // Severe penalty for stale items instead of removal
-        if (!isFresh) {
-            score -= 5;
-        }
+        if (!isFresh) score = 0; // stale items get zeroed — hard removed below
 
-        // Impact level bonus
         if (item.impactLevel === "critical") score += 3;
         else if (item.impactLevel === "high") score += 2;
         else if (item.impactLevel === "medium") score += 1;
 
-        // Noise penalty
         for (const pattern of NOISE_PATTERNS) {
             if (pattern.test(text)) { score -= 3; break; }
         }
 
-
         score = Math.max(1, Math.min(10, score));
 
-        // Map the final score 1-10 to an impact level
         let impactLevel = "medium";
         if (score >= 8) impactLevel = "high";
         else if (score <= 4) impactLevel = "low";
 
-        return { ...item, relevance: score, impactLevel };
+        return { ...item, relevance: score, impactLevel, isFresh };
     });
 
-    // Do not filter out any news. Keep everything, but sort by relevance.
-    const filtered = scored;
-
-    // Sort by relevance
+    // HARD FILTER: stale items are removed entirely
+    const filtered = scored.filter(item => (item as any).isFresh !== false);
     filtered.sort((a, b) => b.relevance - a.relevance);
 
     // Deduplicate by URL
@@ -155,7 +180,7 @@ function rerank(items: NewsItem[]): NewsItem[] {
         return true;
     });
 
-    console.log(`🔄 RERANKER: ${items.length} → ${deduped.length} items (${items.length - deduped.length} total removed)`);
+    console.log(`🔄 RERANKER: ${items.length} → ${deduped.length} items (${staleCount} stale removed)`);
     if (deduped.length > 0) {
         console.log(`   Top 3: ${deduped.slice(0, 3).map((i) => `[${i.relevance}] ${i.title.substring(0, 60)}`).join(" | ")}`);
     }
@@ -242,11 +267,31 @@ async function getCuratedSources(jobRole: string): Promise<string[]> {
         }
 
         const sources = await res.json();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return sources.map((s: any) => `- ${s.name} (${s.type}): ${s.url}`);
     } catch (err) {
         console.error("Error fetching curated sources:", err);
         return [];
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HELPER: Collect all tool result messages from Stage 1 history
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function extractRawToolOutputs(messages: BaseMessage[]): string {
+    const chunks: string[] = [];
+    for (const msg of messages) {
+        if (msg._getType() === "tool") {
+            const toolMsg = msg as BaseMessage & { name?: string };
+            const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
+            if (content && content !== "[]" && content !== "{}" && content.length > 10) {
+                chunks.push(`[SOURCE: ${toolMsg.name || "tool"}]\n${content}`);
+            }
+        }
+    }
+    console.log(`\n📦 Extracted ${chunks.length} raw tool outputs (${chunks.join("").length} chars) for Stage 2`);
+    return chunks.join("\n\n---\n\n");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -259,7 +304,7 @@ export async function POST(req: NextRequest) {
     try {
         const { jobRole, projectContext } = await req.json();
         console.log(`\n${"#".repeat(80)}`);
-        console.log(`# 🚀 AGENT START | Role: "${jobRole}" | Context: ${projectContext ? "Yes" : "No"} | ${new Date().toISOString()}`);
+        console.log(`# 🚀 TWO-STAGE AGENT | Role: "${jobRole}" | ${new Date().toISOString()}`);
         console.log(`${"#".repeat(80)}`);
 
         if (!jobRole || typeof jobRole !== "string") {
@@ -271,112 +316,136 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "OPENAI_API_KEY not configured" }, { status: 500 });
         }
 
-        const model = new AzureChatOpenAI({
+        // ─── Shared Azure model config ─────────────────────────────────────────
+        const modelConfig = {
             azureOpenAIApiKey: apiKey,
             azureOpenAIApiVersion: "2024-12-01-preview",
             azureOpenAIApiDeploymentName: "gpt-4.1-mini",
             azureOpenAIEndpoint: "https://uptostack-openai.openai.azure.com/",
             temperature: 0,
-            maxTokens: 31000,
-        });
+        };
 
-        console.log(`🔧 Tools: ${allSearchTools.map((t) => t.name).join(", ")}`);
-
-        const agent = createReactAgent({ llm: model, tools: allSearchTools });
-
-        // 1. Fetch curated sources from Supabase
+        // ─── Curated sources from Supabase ────────────────────────────────────
         const curatedSources = await getCuratedSources(jobRole);
         let sourceInstruction = "";
-
         if (curatedSources.length > 0) {
-            console.log(`🔗 Found ${curatedSources.length} curated sources for role mapping.`);
-            sourceInstruction = `\n\nCRITICAL SOURCE INSTRUCTION:\nYou MUST prioritize checking the following curated, high-priority sources first before generic web searches:\n${curatedSources.join("\n")}\n- If the source is an RSS or XML feed, use 'read_rss_feed'.\n- If the source is a standard website and 'read_rss_feed' fails or returns 'No feed found', you MUST fallback to 'scrape_website'.\n- If the source is a YouTube channel ID (e.g., 'youtube:UCP7jMXSY2...'), you MUST use 'youtube_channel_videos' and pass that exact ID.`;
+            console.log(`🔗 Found ${curatedSources.length} curated sources for role.`);
+            sourceInstruction = `\n\nCRITICAL: Prioritise these curated sources first:\n${curatedSources.join("\n")}\n- RSS/XML feeds → use 'read_rss_feed'.\n- Standard websites (if read_rss_feed fails) → use 'scrape_website'.\n- YouTube channel IDs (e.g., 'youtube:UCP7...') → use 'youtube_channel_videos'.`;
         } else {
-            console.log(`🔗 No curated sources found for role. Falling back to agentic search.`);
+            console.log(`🔗 No curated sources found. Using agentic search.`);
         }
 
-        // 2. Add Project Context
         const contextInstruction = projectContext
-            ? `\n\nCRITICAL CONTEXT: The user is currently working on the following projects/technologies: "${projectContext}". \nYOU MUST prioritize finding news, releases, and updates that specifically relate to these technologies. When scoring relevance, heavily boost items that match this context.`
+            ? `\n\nCONTEXT: User is working on: "${projectContext}". Prioritise news related to these technologies.`
             : "";
 
-        console.log(`🚀 Invoking agent...\n`);
-        const result = await agent.invoke({
+        // ═══════════════════════════════════════════════════════════════════════
+        // STAGE 1 — RESEARCHER
+        // A ReAct agent that ONLY calls tools and collects raw data.
+        // Output tokens are intentionally limited — it outputs only "DONE".
+        // ═══════════════════════════════════════════════════════════════════════
+
+        console.log(`\n${"─".repeat(80)}`);
+        console.log(`🔍 STAGE 1: RESEARCHER — fetching raw data for "${jobRole}"...`);
+        console.log(`${"─".repeat(80)}\n`);
+
+        const researcherModel = new AzureChatOpenAI({ ...modelConfig, maxTokens: 4096 });
+        const researcherAgent = createReactAgent({ llm: researcherModel, tools: allSearchTools });
+
+        const stage1Result = await researcherAgent.invoke({
             messages: [
-                new SystemMessage(SYSTEM_PROMPT),
+                new SystemMessage(RESEARCHER_PROMPT),
                 new HumanMessage(
-                    `Find the latest TECHNICAL news and trends from the past 24 hours for a "${jobRole}". Focus on: framework/library releases, security patches, technical tutorials, architecture insights, tooling updates, and engineering blog posts. Skip business news, CEO drama, funding rounds, and hype pieces. Today: ${new Date().toISOString().split("T")[0]}.${contextInstruction}${sourceInstruction}`
+                    `Collect all technical news from the past 24 hours for a "${jobRole}". Today: ${new Date().toISOString().split("T")[0]}. Call as many tools as possible in parallel. Do NOT write any JSON or summaries — just run the tools and output DONE when finished.${contextInstruction}${sourceInstruction}`
                 ),
             ],
         });
 
-        // Log trace
-        console.log(`\n${"*".repeat(80)}`);
-        console.log(`* TRACE: ${result.messages.length} messages`);
-        console.log(`${"*".repeat(80)}`);
-        result.messages.forEach((msg: BaseMessage, i: number) => logMessage(msg, i));
+        console.log(`✅ Stage 1 done. ${stage1Result.messages.length} messages in trace.`);
+        stage1Result.messages.forEach((msg: BaseMessage, i: number) => logMessage(msg, i));
 
-        // Extract final response
-        const lastMessage = result.messages[result.messages.length - 1];
-        logMessage(lastMessage, result.messages.length - 1);
+        // ─── Extract raw tool outputs ──────────────────────────────────────────
+        const rawToolData = extractRawToolOutputs(stage1Result.messages);
 
-        const content =
-            typeof lastMessage.content === "string"
-                ? lastMessage.content
-                : JSON.stringify(lastMessage.content);
+        if (!rawToolData || rawToolData.length < 50) {
+            console.warn("⚠️  Stage 1 returned no usable tool data. Returning empty result.");
+            return NextResponse.json({ newsItems: [], jobRole });
+        }
 
+        // ═══════════════════════════════════════════════════════════════════════
+        // STAGE 2 — EXTRACTOR
+        // A plain LLM call with NO tools. Converts raw tool output to JSON.
+        // Cannot hallucinate — it has no tools and is given only raw text.
+        // ═══════════════════════════════════════════════════════════════════════
+
+        console.log(`\n${"─".repeat(80)}`);
+        console.log(`🧪 STAGE 2: EXTRACTOR — structuring ${rawToolData.length} chars of raw data...`);
+        console.log(`${"─".repeat(80)}\n`);
+
+        const extractorModel = new AzureChatOpenAI({ ...modelConfig, maxTokens: 16383 });
+
+        const stage2Result = await extractorModel.invoke([
+            new SystemMessage(EXTRACTOR_PROMPT),
+            new HumanMessage(
+                `Job role: "${jobRole}"\nToday: ${new Date().toISOString().split("T")[0]}\n\nRAW TOOL OUTPUTS FROM STAGE 1:\n\n${rawToolData}\n\nExtract all technically relevant news items from the raw data above and return them as a JSON array. ONLY use information present in the raw text.`
+            ),
+        ]);
+
+        const stage2Content =
+            typeof stage2Result.content === "string"
+                ? stage2Result.content
+                : JSON.stringify(stage2Result.content);
+
+        console.log(`✅ Stage 2 done. Output length: ${stage2Content.length} chars`);
+
+        // ─── Parse Stage 2 output ─────────────────────────────────────────────
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let parsed: any[] = [];
         try {
-            const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+            const cleaned = stage2Content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
             parsed = JSON.parse(cleaned);
         } catch (err) {
-            console.error("❌ Failed to parse agent exact JSON. Attempting cleanup...", err);
-            const match = content.match(/\[[\s\S]*\]/);
+            console.error("❌ JSON parse failed. Attempting regex extraction...", err);
+            const match = stage2Content.match(/\[[\s\S]*\]/);
             if (match) {
-                try {
-                    parsed = JSON.parse(match[0]);
-                } catch {
-                    parsed = [];
-                }
+                try { parsed = JSON.parse(match[0]); } catch { parsed = []; }
             }
         }
 
-        console.log(`✅ Parsed: ${parsed.length} items`);
+        console.log(`✅ Parsed: ${parsed.length} items from Stage 2`);
 
-        // Map the new LLM Database Schema back to the legacy NewsItem UI Schema
+        // ─── Map to legacy UI schema ──────────────────────────────────────────
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const mappedItems: NewsItem[] = parsed.map((item: any) => ({
-            // Core Legacy UI Fields
             title: item.title || "No Title",
             source: item.source || "Unknown",
             summary: item.summary || "",
             url: item.url || "#",
-            relevance: item.importance_score || item.relevance || 5, // Map importance -> relevance
+            relevance: item.importance_score || item.relevance || 5,
             publishedAt: item.published_at || item.publishedAt || new Date().toISOString(),
-            category: (item.technologies && item.technologies.length > 0) ? item.technologies[0] : (item.category || "General"),
+            category: (item.technologies && item.technologies.length > 0)
+                ? item.technologies[0]
+                : (item.category || "General"),
             impactLevel: item.impactLevel || (item.is_major_announcement ? "critical" : undefined),
-
-            // Raw Database Fields for future table saves
             importance_score: item.importance_score,
             target_audience: item.target_audience,
             is_major_announcement: item.is_major_announcement,
             technologies: item.technologies,
             primary_role: item.primary_role,
-            relevant_roles: item.relevant_roles
+            relevant_roles: item.relevant_roles,
         }));
 
-        // ═══════════════════════════════════════════════════════════════════════════
-        // RERANK: Filter noise, boost technical depth, sort by impact
-        // ═══════════════════════════════════════════════════════════════════════════
-
+        // ─── Rerank & deduplicate ─────────────────────────────────────────────
         let newsItems: NewsItem[] = [];
         if (Array.isArray(mappedItems)) {
             newsItems = rerank(mappedItems);
         }
 
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(`\n# ✅ DONE in ${elapsed}s — ${newsItems.length} items after reranking\n`);
+        console.log(`\n# ✅ TWO-STAGE DONE in ${elapsed}s — ${newsItems.length} final items\n`);
 
         return NextResponse.json({ newsItems, jobRole });
+
     } catch (error: unknown) {
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         console.error(`\n❌ ERROR after ${elapsed}s:`, error);

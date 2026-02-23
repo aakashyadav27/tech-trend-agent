@@ -35,14 +35,109 @@ const ROLE_SUGGESTIONS = [
 ];
 
 const ROLE_CONTEXT_TEMPLATES: Record<string, string> = {
-  "Frontend Developer": "Currently building a scalable React/Next.js application using Tailwind CSS. Daily work focuses on complex UI/UX challenges, performance optimization, and state management.",
-  "Data Scientist": "Working primarily with Python, Pandas, and PyTorch. Daily tasks involve deep data analysis, building machine learning models, and optimizing training pipelines.",
-  "DevOps Engineer": "Managing AWS infrastructure, deploying Kubernetes clusters, and maintaining CI/CD pipelines. Work involves heavy use of Terraform, Docker, and observability platforms.",
-  "Product Manager": "Leading product strategy, analyzing user metrics, and running agile development cycles. Daily focus involves integrating new AI features and conducting technical competitive analysis.",
-  "AI/ML Engineer": "Developing and fine-tuning generative AI models, and building scalable pipelines for integrating large language models (LLMs) into production applications.",
-  "Cybersecurity Analyst": "Monitoring network infrastructure for system vulnerabilities and ensuring strict compliance. Day-to-day work involves identifying zero-day exploits and auditing security patches.",
-  "Backend Developer": "Building highly scalable backend services using Node.js, Go, and PostgreSQL. Responsibilities include API design, maintaining microservices architecture, and optimizing database performance.",
-  "UX Designer": "Designing user interfaces and conducting user experience research. Daily work focuses on building comprehensive design systems, ensuring strict accessibility standards, and prototyping in Figma.",
+  "Frontend Developer":
+    `I am a Frontend Developer working daily with React 18+, Next.js 14/15 (App Router), TypeScript, and Tailwind CSS.
+
+My day-to-day responsibilities include:
+- Building complex, performant UI components and design systems (Radix UI, shadcn/ui, Headless UI)
+- Managing client and server state with React Query / TanStack Query, Zustand, or Jotai
+- Optimizing Core Web Vitals (LCP, CLS, INP) and Lighthouse scores for production apps
+- Writing end-to-end and component tests with Playwright, Vitest, and React Testing Library
+- Implementing advanced CSS patterns, animations (Framer Motion, CSS View Transitions API), and responsive layouts
+- Integrating REST and GraphQL APIs, handling real-time data via WebSockets or SSE
+- Working with modern bundlers: Vite, Turbopack, esbuild, and Webpack 5
+- Shipping features via Vercel, Netlify or Cloudflare Pages with edge deployments`,
+
+  "Data Scientist":
+    `I am a Data Scientist working daily with Python (Pandas, NumPy, scikit-learn, PyTorch, TensorFlow/Keras), SQL, and Jupyter notebooks.
+
+My day-to-day responsibilities include:
+- Building and evaluating supervised/unsupervised machine learning models for classification, regression, clustering, and anomaly detection
+- Running exploratory data analysis (EDA) and feature engineering on large structured and unstructured datasets
+- Optimizing model training pipelines using distributed frameworks: Apache Spark, Dask, Ray
+- Experimenting and tracking runs with MLflow, Weights & Biases (W&B), or DVC
+- Serving models in production via FastAPI, Flask, or Triton Inference Server
+- Working with data warehouses: BigQuery, Snowflake, Redshift, and dbt for transformation
+- Building dashboards and visualizations in Plotly, Seaborn, Tableau, or Streamlit
+- Applying and fine-tuning LLMs and foundation models for NLP tasks (HuggingFace Transformers, LangChain)`,
+
+  "DevOps Engineer":
+    `I am a DevOps / Platform Engineer working daily with Kubernetes, Terraform, Docker, CI/CD pipelines, and major cloud providers (AWS, GCP, Azure).
+
+My day-to-day responsibilities include:
+- Provisioning and managing cloud infrastructure as code with Terraform, Pulumi, or AWS CDK
+- Operating Kubernetes clusters (EKS, GKE, AKS) — managing ingress, Helm charts, operators, and custom controllers
+- Designing and maintaining CI/CD pipelines with GitHub Actions, GitLab CI, ArgoCD, or Tekton
+- Building container images with Docker and managing them via ECR, GAR, or Harbor
+- Implementing observability stacks: Prometheus + Grafana, OpenTelemetry, Datadog, or Loki for logs
+- Enforcing security and compliance: RBAC, OPA/Gatekeeper, secret management (Vault), SBOM, and image scanning (Trivy, Snyk)
+- Optimizing cloud costs and resource utilization with KEDA, Karpenter, or Cluster Autoscaler
+- Designing zero-downtime deployment strategies: blue/green, canary, feature flags`,
+
+  "Product Manager":
+    `I am a Technical Product Manager leading cross-functional teams to ship AI-powered software products.
+
+My day-to-day responsibilities include:
+- Defining product strategy, writing PRDs, and maintaining roadmaps aligned with business goals
+- Prioritizing features using frameworks like RICE, MoSCoW, and Jobs-to-be-Done (JTBD)
+- Running agile ceremonies: sprint planning, retrospectives, and stakeholder demos
+- Analyzing product metrics with Mixpanel, Amplitude, PostHog, or Looker
+- Conducting user interviews, usability testing, and A/B experiments to validate hypotheses
+- Staying ahead of AI/ML integrations — evaluating LLM APIs (OpenAI, Anthropic, Gemini), AI copilots, and no-code/low-code platforms
+- Performing competitive analysis of SaaS products and emerging tech trends
+- Collaborating with design (Figma) and engineering (JIRA, Linear, Notion) to align delivery`,
+
+  "AI/ML Engineer":
+    `I am an AI/ML Engineer specializing in building, fine-tuning, and deploying large language models (LLMs) and multimodal AI systems into production.
+
+My day-to-day responsibilities include:
+- Fine-tuning and aligning LLMs using LoRA, QLoRA, RLHF, and DPO on frameworks like Hugging Face TRL, Axolotl, or Unsloth
+- Building scalable LLM inference pipelines with vLLM, TGI (Text Generation Inference), Triton, or ONNX Runtime
+- Designing agentic AI systems using LangChain, LangGraph, LlamaIndex, AutoGen, or CrewAI
+- Implementing RAG (Retrieval-Augmented Generation) pipelines with vector databases: Pinecone, Weaviate, Qdrant, Chroma, or pgvector
+- Integrating multi-modal models for vision, speech, and code understanding (GPT-4V, Claude 3.5, Gemini 1.5)
+- Evaluating model quality using RAGAS, TruLens, Langfuse, or custom LLM-as-judge frameworks
+- Managing GPU infrastructure on AWS (SageMaker, EC2 P/G/Inf instances), GCP (TPU/Vertex), or on-prem
+- Monitoring inference latency, token usage, hallucination rates, and cost in production`,
+
+  "Cybersecurity Analyst":
+    `I am a Cybersecurity Analyst / Security Engineer responsible for protecting enterprise infrastructure from threats, vulnerabilities, and compliance gaps.
+
+My day-to-day responsibilities include:
+- Monitoring SIEM platforms (Splunk, Microsoft Sentinel, Elastic SIEM) for threats, anomalies, and IOCs
+- Conducting vulnerability assessments and penetration testing using Burp Suite, Metasploit, Nmap, and Nessus
+- Triaging and responding to security incidents following NIST/SANS IR playbooks
+- Analyzing CVEs and security advisories from NIST NVD, MITRE CVE, and vendor bulletins
+- Hardening cloud environments (AWS/GCP/Azure) using CIS benchmarks, SCPs, and IAM least-privilege policies
+- Managing endpoint detection and response (EDR): CrowdStrike Falcon, SentinelOne, Microsoft Defender
+- Implementing zero-trust architecture, mTLS, and WAF rules (Cloudflare, AWS WAF)
+- Auditing software supply chain security: SBOM, sigstore, Dependabot, Renovate`,
+
+  "Backend Developer":
+    `I am a Backend Developer building highly available, distributed backend systems and APIs serving millions of requests per day.
+
+My day-to-day responsibilities include:
+- Designing and building RESTful and GraphQL APIs using Node.js (Fastify/Express/NestJS), Python (FastAPI/Django), Go (Gin/Echo), or Rust (Axum/Actix)
+- Architecting microservices and event-driven systems with Kafka, RabbitMQ, NATS, or AWS SQS/SNS
+- Designing relational and NoSQL schemas: PostgreSQL (with pgvector, TimescaleDB extensions), MySQL, MongoDB, Redis, Cassandra
+- Optimizing query performance, indexing strategies, connection pooling (PgBouncer, Prisma, DrizzleORM)
+- Implementing distributed system patterns: CQRS, saga, outbox, circuit breaker, rate limiting
+- Securing APIs: OAuth 2.0, JWT, API keys, mTLS, OWASP API Top 10 protections
+- Writing integration and load tests with k6, Artillery, or Locust
+- Deploying services with Docker, Kubernetes, and serverless functions (AWS Lambda, Cloudflare Workers)`,
+
+  "UX Designer":
+    `I am a UX/Product Designer specializing in designing intuitive, accessible, and visually compelling digital experiences for web and mobile platforms.
+
+My day-to-day responsibilities include:
+- Conducting user research: qualitative interviews, usability tests, card sorting, tree testing with tools like Maze, Lookback, and UserTesting
+- Creating low-fidelity wireframes, high-fidelity mockups, and interactive prototypes in Figma (using Auto Layout, Variables, and Dev Mode)
+- Building and maintaining scalable design systems and component libraries following atomic design principles
+- Ensuring WCAG 2.1/2.2 AA accessibility compliance using color contrast tools, screen reader testing, and keyboard navigation audits
+- Collaborating with engineers to implement designs using Storybook, Zeroheight, or Notion-based design documentation
+- Running A/B tests and analyzing behavioral data (heatmaps, session recordings) via Hotjar, FullStory, or Mixpanel
+- Exploring motion design and micro-interactions with Rive, Lottie, or Figma Prototyping
+- Staying current on design trends: glassmorphism, neumorphism, AI-generated UI, spatial computing (visionOS, Quest)`,
 };
 
 const TYPEWRITER_WORDS = [
